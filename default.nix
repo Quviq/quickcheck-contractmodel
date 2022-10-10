@@ -32,4 +32,13 @@ in pkgs.haskell-nix.project {
   };
   # Specify the GHC version to use.
   compiler-nix-name = "ghc8107"; # Not required for `stack.yaml` based projects.
+
+  modules = [
+    ({ pkgs, ... }: {
+      packages.cardano-crypto-class.components.library.pkgconfig = 
+        pkgs.lib.mkForce [ [ pkgs.libsodium-vrf pkgs.secp256k1 ] ];
+      packages.cardano-crypto-praos.components.library.pkgconfig = 
+        pkgs.lib.mkForce [ [ pkgs.libsodium-vrf ] ];
+    })
+  ];
 }
