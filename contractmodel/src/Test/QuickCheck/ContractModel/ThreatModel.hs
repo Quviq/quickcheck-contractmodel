@@ -545,8 +545,8 @@ doubleSatisfaction = do
 
   -- add safe script input with protected output, redirect original output to signer
   let safeScript  = alwaysTrueValidator
-      unitDatum   = inlineDatum $ toScriptData ()
-      uniqueDatum = inlineDatum $ toScriptData ("SuchSecure" :: BuiltinByteString)
+      unitDatum   = TxOutDatumHash ScriptDataInBabbageEra (hashScriptData  $ toScriptData ())
+      uniqueDatum = TxOutDatumHash ScriptDataInBabbageEra (hashScriptData $ toScriptData ("SuchSecure" :: BuiltinByteString))
 
       victimTarget = targetOf output
 
