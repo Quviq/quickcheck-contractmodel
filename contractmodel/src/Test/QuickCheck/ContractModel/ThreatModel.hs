@@ -340,7 +340,7 @@ instance MonadFail ThreatModel where
 
 runThreatModel :: ThreatModel a -> [ThreatModelEnv] -> Property
 runThreatModel = go False
-  where go b model [] = b ==> property True
+  where go b model [] = classify b "Not skipped" $ property True
         go b model (env : envs) = interp model
           where
             interp = \ case
@@ -506,21 +506,17 @@ doubleSatisfaction :: ThreatModel ()
 doubleSatisfaction = do
 
   signer <- anySigner
-  traceM "0"
   let signerTarget = PaymentCredentialByKey signer
       signerAddr   = targetToAddressAny signerTarget
 
   outputs <- txOutputs <$> originalTx
   output  <- pickAny $ filter ((/= signerAddr) . targetOf) outputs
-  traceM "1"
 
   let ada = projectAda $ valueOf output
 
   -- redirect output to signer: precondition: this should fail
   precondition $ shouldNotValidate $ changeValueOf output (valueOf output <> negateValue ada)
                                   <> addOutput signerAddr ada TxOutDatumNone
-
-  traceM "2"
 
   -- add safe script input with protected output, redirect original output to signer
   let safeScript  = alwaysTrueValidator
@@ -532,9 +528,6 @@ doubleSatisfaction = do
                    <> addOutput      victimTarget ada uniqueDatum
                    <> changeValueOf  output (valueOf output <> negateValue ada)
                    <> addOutput      signerAddr ada TxOutDatumNone
-
-  traceM "3"
-
 
 -- TODO: I don't like how inefficient this is! We only run one check per run, but
 -- on the other hand I can't just say "all these properties must hold" because
