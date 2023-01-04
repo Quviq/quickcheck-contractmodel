@@ -367,17 +367,20 @@ runThreatModel = go False
 -- This also means that if we were to want to deal with execution units in the threat
 -- modelling framework we would need to be a bit careful and figure out some abstractions
 -- that make it make sense (and check the budgets here).
+--
+-- Stolen from Hydra
 validateTx :: ProtocolParameters -> Tx Era -> UTxO Era -> Bool
-validateTx pparams tx utxos = isRight $
-  -- Stolen from Hydra
-  evaluateTransactionExecutionUnits
-    BabbageEraInCardanoMode
-    systemStart
-    eraHistory
-    pparams
-    utxos
-    (getTxBody tx)
+validateTx pparams tx utxos = case result of
+  Left _ -> False
+  Right report -> all isRight (Map.elems report)
   where
+    result = evaluateTransactionExecutionUnits
+                BabbageEraInCardanoMode
+                systemStart
+                eraHistory
+                pparams
+                utxos
+                (getTxBody tx)
     eraHistory :: EraHistory CardanoMode
     eraHistory = EraHistory CardanoMode (mkInterpreter summary)
 
