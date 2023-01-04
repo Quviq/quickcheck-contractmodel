@@ -420,7 +420,7 @@ shouldNotValidate tx = do
 precondition :: ThreatModel a -> ThreatModel ()
 precondition = \ case
   Skip           -> Skip
-  Fail{}         -> Skip
+  Fail reason    -> Monitor (tabulate "Precondition failed with reason" [reason]) Skip
   Valid tx k     -> Valid tx     (precondition . k)
   Generate g s k -> Generate g s (precondition . k)
   GetCtx k       -> GetCtx       (precondition . k)
