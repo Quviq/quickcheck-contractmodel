@@ -338,19 +338,18 @@ instance MonadFail ThreatModel where
   fail = Fail
 
 runThreatModel :: ThreatModel a -> [ThreatModelEnv] -> Property
-runThreatModel model []           = property True
-runThreatModel model (env : envs) = interp model
-  where
-    interp = \ case
-      Valid mods k       -> interp $ k $ uncurry (validateTx $ pparams env)
-                                       $ applyTxModifier (currentTx env) (currentUTxOs env) mods
-      Generate gen shr k -> forAllShrink gen shr $ interp . k
-      GetCtx k           -> interp $ k env
-      Skip               -> case envs of
-        [] -> False ==> False
-        _  -> runThreatModel model envs
-      Fail err           -> counterexample err False
-      Done{}             -> runThreatModel model envs
+runThreatModel = go False
+  where go b model [] = b ==> property True
+        go b model (env : envs) = interp model
+          where
+            interp = \ case
+              Valid mods k       -> interp $ k $ uncurry (validateTx $ pparams env)
+                                               $ applyTxModifier (currentTx env) (currentUTxOs env) mods
+              Generate gen shr k -> forAllShrink gen shr $ interp . k
+              GetCtx k           -> interp $ k env
+              Skip               -> go b model envs
+              Fail err           -> counterexample err False
+              Done{}             -> go True model envs
 
 -- NOTE: this function ignores the execution units associated with
 -- the scripts in the Tx. That way we don't have to care about computing
