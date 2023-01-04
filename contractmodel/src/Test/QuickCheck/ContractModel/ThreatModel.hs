@@ -521,12 +521,12 @@ doubleSatisfaction = do
   let signerTarget = PaymentCredentialByKey signer
       signerAddr   = targetToAddressAny signerTarget
 
-  monitor (classify True "Picked signer")
+  monitorThreatModel (classify True "Picked signer")
 
   outputs <- txOutputs <$> originalTx
   output  <- pickAny $ filter ((/= signerAddr) . targetOf) outputs
 
-  monitor (classify True "Picked output")
+  monitorThreatModel (classify True "Picked output")
 
   let ada = projectAda $ valueOf output
 
@@ -534,7 +534,7 @@ doubleSatisfaction = do
   precondition $ shouldNotValidate $ changeValueOf output (valueOf output <> negateValue ada)
                                   <> addOutput signerAddr ada TxOutDatumNone
 
-  monitor (classify True "Passed precondition")
+  monitorThreatModel (classify True "Passed precondition")
 
   -- add safe script input with protected output, redirect original output to signer
   let safeScript  = alwaysTrueValidator
