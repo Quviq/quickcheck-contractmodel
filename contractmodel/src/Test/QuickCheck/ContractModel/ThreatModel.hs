@@ -453,9 +453,9 @@ txSigners (Tx _ wits) = [ toHash wit | ShelleyKeyWitness _ (WitVKey wit _) <- wi
            . coerceKeyRole
 
 pickAny :: Show a => [a] -> ThreatModel a
-pickAny [] = fail $ "pickAny: empty list"
-pickAny xs =
-  let xs' = zip xs [0..] in
+pickAny xs = do
+  ensure (not $ null xs)
+  let xs' = zip xs [0..]
   fst <$> gen (elements xs') (\(_, i) -> take i xs')
 
 changeTarget :: output -> Target -> TxModifier
