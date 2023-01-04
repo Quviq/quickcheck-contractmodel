@@ -120,14 +120,19 @@ applyTxMod tx utxos (RemoveOutput (TxIx i)) =
                                                    ++ show (Seq.length outputs) ++ " outputs"
 
 applyTxMod tx utxos (AddOutput addr value datum) =
-    (Tx (ShelleyTxBody era body{Ledger.outputs = outputs'} scripts scriptData auxData validity) wits, utxos)
+    (Tx (ShelleyTxBody era body{Ledger.outputs = outputs'} scripts scriptData' auxData validity) wits, utxos)
   where
     Tx (ShelleyTxBody era body@Ledger.TxBody{..} scripts scriptData auxData validity) wits = tx
     outputs' = outputs Seq.:|> CBOR.mkSized out
     out = toShelleyTxOut shelleyBasedEra (makeTxOut addr value datum ReferenceScriptNone)
+    scriptData' = case datum of
+      TxOutDatumNone -> scriptData
+      TxOutDatumHash{} -> scriptData
+      TxOutDatumInTx _ d -> addDatum (toAlonzoData d) scriptData
+      TxOutDatumInline _ d -> addDatum (toAlonzoData d) scriptData
 
 applyTxMod tx utxos (AddInput addr value datum) =
-    ( Tx (ShelleyTxBody era body{Ledger.inputs = inputs'} scripts scriptData' auxData validity) wits
+    ( Tx (ShelleyTxBody era body{Ledger.inputs = inputs'} scripts scriptData'' auxData validity) wits
     , utxos' )
   where
     Tx (ShelleyTxBody era body@Ledger.TxBody{..} scripts scriptData auxData validity) wits = tx
@@ -141,12 +146,12 @@ applyTxMod tx utxos (AddInput addr value datum) =
     idxUpdate idx'
       | idx' >= idx = idx' + 1
       | otherwise   = idx'
-    d = case datum of
-      TxOutDatumNone -> error "Bad test!"
-      TxOutDatumHash{} -> error "Bad test!"
-      TxOutDatumInTx _ d -> toAlonzoData d
-      TxOutDatumInline _ d -> toAlonzoData d
-    scriptData' = addDatum d $ recomputeScriptData Nothing idxUpdate scriptData
+    scriptData'' = case datum of
+      TxOutDatumNone -> scriptData'
+      TxOutDatumHash{} -> scriptData'
+      TxOutDatumInTx _ d -> addDatum (toAlonzoData d) scriptData'
+      TxOutDatumInline _ d -> addDatum (toAlonzoData d) scriptData'
+    scriptData' = recomputeScriptData Nothing idxUpdate scriptData
 
 applyTxMod tx utxos (AddScriptInput script value datum redeemer) =
     ( Tx (ShelleyTxBody era body{Ledger.inputs = inputs'} scripts' scriptData' auxData validity) wits
@@ -567,9 +572,7 @@ doubleSatisfaction = do
   -- add safe script input with protected output, redirect original output to signer
   let safeScript  = alwaysTrueValidator
       unitDatum   = inlineDatum $ toScriptData ()
-      uniqueDatum = TxOutDatumHash ScriptDataInBabbageEra
-                  $ hashScriptData
-                  $ toScriptData ("SuchSecure" :: BuiltinByteString)
+      uniqueDatum = inlineDatum $ toScriptData ("SuchSecure" :: BuiltinByteString)
 
       victimTarget = targetOf output
 
