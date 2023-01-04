@@ -482,8 +482,8 @@ addOutput addr value datum = [AddOutput addr value datum]
 anySigner :: ThreatModel (Hash PaymentKey)
 anySigner = pickAny . txSigners =<< originalTx
 
-monitor :: (Property -> Property) -> ThreatModel ()
-monitor m = Monitor m (pure ())
+monitorThreatModel :: (Property -> Property) -> ThreatModel ()
+monitorThreatModel m = Monitor m (pure ())
 
 targetOf :: Output -> AddressAny
 targetOf (Output (TxOut (AddressInEra ShelleyAddressInEra{}  addr) _ _ _) _) = AddressShelley addr
