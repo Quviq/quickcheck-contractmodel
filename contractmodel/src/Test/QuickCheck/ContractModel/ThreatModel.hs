@@ -296,7 +296,7 @@ data ThreatModelEnv = ThreatModelEnv
   { currentTx    :: Tx Era
   , currentUTxOs :: UTxO Era
   , pparams      :: ProtocolParameters
-  }
+  } deriving Show
 
 data ThreatModel a where
   Valid        :: TxModifier
@@ -526,10 +526,15 @@ doubleSatisfaction = do
                    <> changeValueOf  output (valueOf output <> negateValue ada)
                    <> addOutput      signerAddr ada TxOutDatumNone
 
+-- TODO: I don't like how inefficient this is! We only run one check per run, but
+-- on the other hand I can't just say "all these properties must hold" because
+-- QuickCheck will discard the property `(False ==> False) .&&. True`
 assertThreatModel :: ProtocolParameters
                   -> ThreatModel a
                   -> ContractModelResult state
                   -> Property
 assertThreatModel params m result =
-  foldr (.&&.) (property True) [ runThreatModel m (ThreatModelEnv (tx txInState) (utxo $ chainState txInState) params)
-                               | txInState <- transactions $ finalChainIndex result ]
+  not (null envs) ==> forAll (elements envs) (runThreatModel m)
+  where
+    envs = [ ThreatModelEnv (tx txInState) (utxo $ chainState txInState) params
+           | txInState <- transactions $ finalChainIndex result ]
