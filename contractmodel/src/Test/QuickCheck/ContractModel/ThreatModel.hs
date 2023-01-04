@@ -317,6 +317,10 @@ data ThreatModel a where
   Fail         :: String
                -> ThreatModel a
 
+  Monitor      :: (Property -> Property)
+               -> ThreatModel a
+               -> ThreatModel a
+
   Done         :: a
                -> ThreatModel a
 
@@ -333,6 +337,7 @@ instance Monad ThreatModel where
   Fail err              >>= _ = Fail err
   Generate gen shr cont >>= k = Generate gen shr (cont >=> k)
   GetCtx cont           >>= k = GetCtx (cont >=> k)
+  Monitor m cont        >>= k = Monitor m (cont >>= k)
   Done a                >>= k = k a
 
 instance MonadFail ThreatModel where
@@ -340,7 +345,9 @@ instance MonadFail ThreatModel where
 
 runThreatModel :: ThreatModel a -> [ThreatModelEnv] -> Property
 runThreatModel = go False
-  where go b model [] = classify b "Not skipped" $ property True
+  where go b model [] = classify (not b) "Skipped"
+                      $ classify b "Not skipped"
+                      $ property True
         go b model (env : envs) = interp model
           where
             interp = \ case
@@ -350,6 +357,7 @@ runThreatModel = go False
               GetCtx k           -> interp $ k env
               Skip               -> go b model envs
               Fail err           -> counterexample err False
+              Monitor m k        -> m $ interp k
               Done{}             -> go True model envs
 
 -- NOTE: this function ignores the execution units associated with
@@ -416,6 +424,7 @@ precondition = \ case
   Valid tx k     -> Valid tx     (precondition . k)
   Generate g s k -> Generate g s (precondition . k)
   GetCtx k       -> GetCtx       (precondition . k)
+  Monitor m k    -> Monitor m    (precondition k)
   Done{}         -> Done ()
 
 ensure :: Bool -> ThreatModel ()
@@ -473,6 +482,9 @@ addOutput addr value datum = [AddOutput addr value datum]
 anySigner :: ThreatModel (Hash PaymentKey)
 anySigner = pickAny . txSigners =<< originalTx
 
+monitor :: (Property -> Property) -> ThreatModel ()
+monitor m = Monitor m (pure ())
+
 targetOf :: Output -> AddressAny
 targetOf (Output (TxOut (AddressInEra ShelleyAddressInEra{}  addr) _ _ _) _) = AddressShelley addr
 targetOf (Output (TxOut (AddressInEra ByronAddressInAnyEra{} addr) _ _ _) _) = AddressByron   addr
@@ -509,8 +521,12 @@ doubleSatisfaction = do
   let signerTarget = PaymentCredentialByKey signer
       signerAddr   = targetToAddressAny signerTarget
 
+  monitor (classify True "Picked signer")
+
   outputs <- txOutputs <$> originalTx
   output  <- pickAny $ filter ((/= signerAddr) . targetOf) outputs
+
+  monitor (classify True "Picked output")
 
   let ada = projectAda $ valueOf output
 
@@ -518,20 +534,20 @@ doubleSatisfaction = do
   precondition $ shouldNotValidate $ changeValueOf output (valueOf output <> negateValue ada)
                                   <> addOutput signerAddr ada TxOutDatumNone
 
+  monitor (classify True "Passed precondition")
+
   -- add safe script input with protected output, redirect original output to signer
   let safeScript  = alwaysTrueValidator
       unitDatum   = inlineDatum $ toScriptData ()
       uniqueDatum = inlineDatum $ toScriptData ("SuchSecure" :: BuiltinByteString)
 
       victimTarget = targetOf output
+
   shouldNotValidate $ addScriptInput safeScript   ada unitDatum (toScriptData ())
                    <> addOutput      victimTarget ada uniqueDatum
                    <> changeValueOf  output (valueOf output <> negateValue ada)
                    <> addOutput      signerAddr ada TxOutDatumNone
 
--- TODO: I don't like how inefficient this is! We only run one check per run, but
--- on the other hand I can't just say "all these properties must hold" because
--- QuickCheck will discard the property `(False ==> False) .&&. True`
 assertThreatModel :: ProtocolParameters
                   -> ThreatModel a
                   -> ContractModelResult state
