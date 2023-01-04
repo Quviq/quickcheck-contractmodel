@@ -202,8 +202,8 @@ applyTxMod tx utxos (ChangeOutput ix maddr mvalue mdatum) =
     scriptData' = case mdatum of
       Nothing -> scriptData
       Just d -> case d of
-        TxOutDatumNone -> error "Bad test!"
-        TxOutDatumHash{} -> error "Bad test!"
+        TxOutDatumNone -> scriptData
+        TxOutDatumHash{} -> scriptData
         TxOutDatumInTx _ d -> addDatum (toAlonzoData d) scriptData
         TxOutDatumInline _ d -> addDatum (toAlonzoData d) scriptData
 
@@ -537,9 +537,9 @@ inlineDatum d = TxOutDatumInline ReferenceTxInsScriptsInlineDatumsInBabbageEra d
 toScriptData :: ToData a => a -> ScriptData
 toScriptData = fromPlutusData . toData
 
-alwaysTrueValidator :: ScriptInEra Era
-alwaysTrueValidator = ScriptInEra SimpleScriptV2InBabbage
-                                  (SimpleScript SimpleScriptV2 $ RequireAllOf [])
+checkSignedBy :: Hash PaymentKey -> ScriptInEra Era
+checkSignedBy h = ScriptInEra SimpleScriptV2InBabbage
+                                    (SimpleScript SimpleScriptV2 $ RequireSignature h)
 
 changeValueOf :: Output -> Value -> TxModifier
 changeValueOf output val = [ChangeOutput (outputIx output) Nothing (Just val) Nothing]
@@ -570,7 +570,7 @@ doubleSatisfaction = do
   monitorThreatModel (classify True "Passed precondition")
 
   -- add safe script input with protected output, redirect original output to signer
-  let safeScript  = alwaysTrueValidator
+  let safeScript  = checkSignedBy signer
       unitDatum   = inlineDatum $ toScriptData ()
       uniqueDatum = inlineDatum $ toScriptData ("SuchSecure" :: BuiltinByteString)
 
