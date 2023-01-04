@@ -141,7 +141,12 @@ applyTxMod tx utxos (AddInput addr value datum) =
     idxUpdate idx'
       | idx' >= idx = idx' + 1
       | otherwise   = idx'
-    scriptData' = recomputeScriptData Nothing idxUpdate scriptData
+    d = case datum of
+      TxOutDatumNone -> error "Bad test!"
+      TxOutDatumHash{} -> error "Bad test!"
+      TxOutDatumInTx _ d -> toAlonzoData d
+      TxOutDatumInline _ d -> toAlonzoData d
+    scriptData' = addDatum d $ recomputeScriptData Nothing idxUpdate scriptData
 
 applyTxMod tx utxos (AddScriptInput script value datum redeemer) =
     ( Tx (ShelleyTxBody era body{Ledger.inputs = inputs'} scripts' scriptData' auxData validity) wits
@@ -177,7 +182,7 @@ applyTxMod tx utxos (AddScriptInput script value datum redeemer) =
     addr = targetToAddressAny $ PaymentCredentialByScript hash
 
 applyTxMod tx utxos (ChangeOutput ix maddr mvalue mdatum) =
-    (Tx (ShelleyTxBody era body{Ledger.outputs = outputs'} scripts scriptData auxData validity) wits, utxos)
+    (Tx (ShelleyTxBody era body{Ledger.outputs = outputs'} scripts scriptData' auxData validity) wits, utxos)
   where
     TxIx (fromIntegral -> idx) = ix
     Tx bdy@(ShelleyTxBody era body@Ledger.TxBody{..} scripts scriptData auxData validity) wits = tx
@@ -189,6 +194,14 @@ applyTxMod tx utxos (ChangeOutput ix maddr mvalue mdatum) =
                                                     (fromMaybe value mvalue)
                                                     (fromMaybe datum mdatum)
                                                     rscript)
+    scriptData' = case mdatum of
+      Nothing -> scriptData
+      Just d -> case d of
+        TxOutDatumNone -> error "Bad test!"
+        TxOutDatumHash{} -> error "Bad test!"
+        TxOutDatumInTx _ d -> addDatum (toAlonzoData d) scriptData
+        TxOutDatumInline _ d -> addDatum (toAlonzoData d) scriptData
+
 
 applyTxMod tx utxos (ChangeInput txIn maddr mvalue) = (tx , utxos')
   where
@@ -257,6 +270,14 @@ addScriptData ix dat rdmr TxBodyNoScriptData = addScriptData ix dat rdmr emptyTx
 addScriptData ix dat rdmr (TxBodyScriptData era (Ledger.TxDats dats) (Ledger.Redeemers rdmrs)) =
   TxBodyScriptData era (Ledger.TxDats $ Map.insert (Ledger.hashData dat) dat dats)
                        (Ledger.Redeemers $ Map.insert (Ledger.RdmrPtr Ledger.Spend ix) rdmr rdmrs)
+
+addDatum :: Ledger.Data (ShelleyLedgerEra Era)
+         -> TxBodyScriptData Era
+         -> TxBodyScriptData Era
+addDatum dat TxBodyNoScriptData = addDatum dat emptyTxBodyScriptData
+addDatum dat (TxBodyScriptData era (Ledger.TxDats dats) rdmrs) =
+  TxBodyScriptData era (Ledger.TxDats $ Map.insert (Ledger.hashData dat) dat dats)
+                       rdmrs
 
 -- | Used for new inputs.
 dummyTxId :: TxId
@@ -546,7 +567,9 @@ doubleSatisfaction = do
   -- add safe script input with protected output, redirect original output to signer
   let safeScript  = alwaysTrueValidator
       unitDatum   = inlineDatum $ toScriptData ()
-      uniqueDatum = inlineDatum $ toScriptData ("SuchSecure" :: BuiltinByteString)
+      uniqueDatum = TxOutDatumHash ScriptDataInBabbageEra
+                  $ hashScriptData
+                  $ toScriptData ("SuchSecure" :: BuiltinByteString)
 
       victimTarget = targetOf output
 
