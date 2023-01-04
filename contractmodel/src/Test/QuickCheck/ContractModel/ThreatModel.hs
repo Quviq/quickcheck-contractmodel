@@ -337,17 +337,20 @@ instance Monad ThreatModel where
 instance MonadFail ThreatModel where
   fail = Fail
 
-runThreatModel :: ThreatModel a -> ThreatModelEnv -> Property
-runThreatModel model env = interp model
+runThreatModel :: ThreatModel a -> [ThreatModelEnv] -> Property
+runThreatModel model []           = property True
+runThreatModel model (env : envs) = interp model
   where
     interp = \ case
       Valid mods k       -> interp $ k $ uncurry (validateTx $ pparams env)
                                        $ applyTxModifier (currentTx env) (currentUTxOs env) mods
       Generate gen shr k -> forAllShrink gen shr $ interp . k
       GetCtx k           -> interp $ k env
-      Skip               -> False ==> False
+      Skip               -> case envs of
+        [] -> False ==> False
+        _  -> runThreatModel model envs
       Fail err           -> counterexample err False
-      Done{}             -> property True
+      Done{}             -> runThreatModel model envs
 
 -- NOTE: this function ignores the execution units associated with
 -- the scripts in the Tx. That way we don't have to care about computing
@@ -526,6 +529,7 @@ doubleSatisfaction = do
                    <> changeValueOf  output (valueOf output <> negateValue ada)
                    <> addOutput      signerAddr ada TxOutDatumNone
 
+
 -- TODO: I don't like how inefficient this is! We only run one check per run, but
 -- on the other hand I can't just say "all these properties must hold" because
 -- QuickCheck will discard the property `(False ==> False) .&&. True`
@@ -533,8 +537,7 @@ assertThreatModel :: ProtocolParameters
                   -> ThreatModel a
                   -> ContractModelResult state
                   -> Property
-assertThreatModel params m result =
-  not (null envs) ==> forAll (elements envs) (runThreatModel m)
+assertThreatModel params m result = runThreatModel m envs
   where
     envs = [ ThreatModelEnv (tx txInState) (utxo $ chainState txInState) params
            | txInState <- transactions $ finalChainIndex result ]
