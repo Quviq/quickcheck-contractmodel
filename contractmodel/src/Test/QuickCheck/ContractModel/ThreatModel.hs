@@ -40,6 +40,8 @@ import Data.Maybe.Strict
 import Cardano.Ledger.Alonzo.Scripts qualified as Ledger
 
 import Test.QuickCheck.ContractModel.Internal.Common
+import Test.QuickCheck.ContractModel.Internal
+import Test.QuickCheck.ContractModel.Internal.ChainIndex
 
 import Test.QuickCheck
 
@@ -524,3 +526,10 @@ doubleSatisfaction = do
                    <> changeValueOf  output (valueOf output <> negateValue ada)
                    <> addOutput      signerAddr ada TxOutDatumNone
 
+assertThreatModel :: ProtocolParameters
+                  -> ThreatModel a
+                  -> ContractModelResult state
+                  -> Property
+assertThreatModel params m result =
+  foldr (.&&.) (property True) [ runThreatModel m (ThreatModelEnv (tx txInState) (utxo $ chainState txInState) params)
+                               | txInState <- transactions $ finalChainIndex result ]
