@@ -413,11 +413,15 @@ validate tx = Valid tx pure
 shouldValidate :: TxModifier -> ThreatModel ()
 shouldValidate tx = do
   valid <- validate tx
+  -- TODO: here I think we might want a summary of the reasons
+  -- for logging purposes if we are in a precondition
   unless valid $ fail $ "Expected " ++ show tx ++ " to validate"
 
 shouldNotValidate :: TxModifier -> ThreatModel ()
 shouldNotValidate tx = do
   valid <- validate tx
+  -- TODO: here I think we might want a summary of the reasons
+  -- for logging purposes if we are in a precondition
   when valid $ fail $ "Expected " ++ show tx ++ " to not validate"
 
 precondition :: ThreatModel a -> ThreatModel ()
