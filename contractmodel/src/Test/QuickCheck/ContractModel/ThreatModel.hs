@@ -325,9 +325,15 @@ data ThreatModelEnv = ThreatModelEnv
   , pparams      :: ProtocolParameters
   } deriving Show
 
+data ValidityReport = ValidityReport
+  { valid  :: Bool
+  , errors :: [String]
+  } deriving (Ord, Eq, Show)
+
+
 data ThreatModel a where
-  Valid        :: TxModifier
-               -> (Bool -> ThreatModel a)
+  Validate     :: TxModifier
+               -> (ValidityReport -> ThreatModel a)
                -> ThreatModel a
 
   Generate     :: Show a
@@ -358,7 +364,7 @@ instance Applicative ThreatModel where
   (<*>) = ap
 
 instance Monad ThreatModel where
-  Valid tx cont         >>= k = Valid tx (cont >=> k)
+  Validate tx cont         >>= k = Validate tx (cont >=> k)
   Skip                  >>= _ = Skip
   Fail err              >>= _ = Fail err
   Generate gen shr cont >>= k = Generate gen shr (cont >=> k)
@@ -377,7 +383,7 @@ runThreatModel = go False
         go b model (env : envs) = interp model
           where
             interp = \ case
-              Valid mods k       -> interp $ k $ uncurry (validateTx $ pparams env)
+              Validate mods k       -> interp $ k $ uncurry (validateTx $ pparams env)
                                                $ applyTxModifier (currentTx env) (currentUTxOs env) mods
               Generate gen shr k -> forAllShrink gen shr $ interp . k
               GetCtx k           -> interp $ k env
@@ -395,10 +401,10 @@ runThreatModel = go False
 -- that make it make sense (and check the budgets here).
 --
 -- Stolen from Hydra
-validateTx :: ProtocolParameters -> Tx Era -> UTxO Era -> Bool
+validateTx :: ProtocolParameters -> Tx Era -> UTxO Era -> ValidityReport
 validateTx pparams tx utxos = case result of
-  Left _ -> False
-  Right report -> all isRight (Map.elems report)
+  Left e -> ValidityReport False [show e]
+  Right report -> ValidityReport (all isRight (Map.elems report)) []
   where
     result = evaluateTransactionExecutionUnits
                 BabbageEraInCardanoMode
@@ -433,28 +439,34 @@ validateTx pparams tx utxos = case result of
     systemStart :: SystemStart
     systemStart = SystemStart $ posixSecondsToUTCTime 0
 
-validate :: TxModifier -> ThreatModel Bool
-validate tx = Valid tx pure
+validate :: TxModifier -> ThreatModel ValidityReport
+validate tx = Validate tx pure
 
 shouldValidate :: TxModifier -> ThreatModel ()
 shouldValidate tx = do
-  valid <- validate tx
+  validReport <- validate tx
   -- TODO: here I think we might want a summary of the reasons
   -- for logging purposes if we are in a precondition
-  unless valid $ fail $ "Expected " ++ show tx ++ " to validate"
+  unless (valid validReport) $ do
+    monitorThreatModel $ tabulate "shouldValidate failure"
+                                  (errors validReport)
+    fail $ "Expected " ++ show tx ++ " to validate"
 
 shouldNotValidate :: TxModifier -> ThreatModel ()
 shouldNotValidate tx = do
-  valid <- validate tx
+  validReport <- validate tx
   -- TODO: here I think we might want a summary of the reasons
   -- for logging purposes if we are in a precondition
-  when valid $ fail $ "Expected " ++ show tx ++ " to not validate"
+  when (valid validReport) $ do
+    monitorThreatModel $ tabulate "shouldNotValidate failure"
+                                  (errors validReport)
+    fail $ "Expected " ++ show tx ++ " not to validate"
 
 precondition :: ThreatModel a -> ThreatModel ()
 precondition = \ case
   Skip           -> Skip
   Fail reason    -> Monitor (tabulate "Precondition failed with reason" [reason]) Skip
-  Valid tx k     -> Valid tx     (precondition . k)
+  Validate tx k     -> Validate tx     (precondition . k)
   Generate g s k -> Generate g s (precondition . k)
   GetCtx k       -> GetCtx       (precondition . k)
   Monitor m k    -> Monitor m    (precondition k)
