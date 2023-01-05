@@ -405,7 +405,7 @@ validateTx :: ProtocolParameters -> Tx Era -> UTxO Era -> ValidityReport
 validateTx pparams tx utxos = case result of
   Left e -> ValidityReport False [show e]
   Right report -> ValidityReport (all isRight (Map.elems report))
-                                 [show e | e <- Map.elems report]
+                                 [show e | Left e <- Map.elems report]
   where
     result = evaluateTransactionExecutionUnits
                 BabbageEraInCardanoMode
@@ -458,9 +458,9 @@ shouldNotValidate tx = do
   validReport <- validate tx
   -- TODO: here I think we might want a summary of the reasons
   -- for logging purposes if we are in a precondition
-  when (valid validReport) $ do
-    monitorThreatModel $ tabulate "shouldNotValidate failure"
+  monitorThreatModel $ tabulate "shouldNotValidate tx failures"
                                   (errors validReport)
+  when (valid validReport) $ do
     fail $ "Expected " ++ show tx ++ " not to validate"
 
 precondition :: ThreatModel a -> ThreatModel ()
