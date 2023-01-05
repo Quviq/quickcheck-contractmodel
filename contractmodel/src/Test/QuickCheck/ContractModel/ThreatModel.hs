@@ -404,7 +404,8 @@ runThreatModel = go False
 validateTx :: ProtocolParameters -> Tx Era -> UTxO Era -> ValidityReport
 validateTx pparams tx utxos = case result of
   Left e -> ValidityReport False [show e]
-  Right report -> ValidityReport (all isRight (Map.elems report)) []
+  Right report -> ValidityReport (all isRight (Map.elems report))
+                                 [show e | e <- Map.elems report]
   where
     result = evaluateTransactionExecutionUnits
                 BabbageEraInCardanoMode
