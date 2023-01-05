@@ -544,8 +544,8 @@ valueOf (Output (TxOut _ val _ _) _) =
 datumOf :: Output -> Datum
 datumOf (Output (TxOut _ _ dat _) _) = dat
 
-inlineDatum :: ScriptData -> Datum
-inlineDatum d = TxOutDatumInline ReferenceTxInsScriptsInlineDatumsInBabbageEra d
+txOutDatum :: ScriptData -> Datum
+txOutDatum d = TxOutDatumInTx ScriptDataInBabbageEra d
 
 toScriptData :: ToData a => a -> ScriptData
 toScriptData = fromPlutusData . toData
@@ -584,8 +584,8 @@ doubleSatisfaction = do
 
   -- add safe script input with protected output, redirect original output to signer
   let safeScript  = checkSignedBy signer
-      unitDatum   = inlineDatum $ toScriptData ()
-      uniqueDatum = inlineDatum $ toScriptData ("SuchSecure" :: BuiltinByteString)
+      unitDatum   = txOutDatum $ toScriptData ()
+      uniqueDatum = txOutDatum $ toScriptData ("SuchSecure" :: BuiltinByteString)
 
       victimTarget = targetOf output
 
