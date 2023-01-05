@@ -46,6 +46,9 @@ import Test.QuickCheck.ContractModel.Internal.ChainIndex
 
 import Test.QuickCheck
 
+-- TODO: for some reason the plutus-apps emulator fails if you use inline datums - so
+-- all such transactions fail to validate.
+
 type Target = PaymentCredential
 
 data Output = Output { outputTxOut :: TxOut CtxTx Era
@@ -84,6 +87,11 @@ data TxMod where
                  -> Datum
                  -> Redeemer
                  -> TxMod
+
+
+  AddSimpleScriptInput :: SimpleScript SimpleScriptV2
+                       -> Value
+                       -> TxMod
   deriving (Show)
 
 recomputeScriptData :: Maybe Word64 -- Index to remove
@@ -136,21 +144,26 @@ applyTxMod tx utxos (AddInput addr value datum) =
     , utxos' )
   where
     Tx (ShelleyTxBody era body@Ledger.TxBody{..} scripts scriptData auxData validity) wits = tx
-    inputs' = Set.insert input inputs
-    input   = toShelleyTxIn txIn
+
     txIn    = TxIn dummyTxId (TxIx txIx)
     txIx    = maximum $ 0 : map (+ 1) [ ix | TxIn txId (TxIx ix) <- Map.keys $ unUTxO utxos, txId == dummyTxId ]
+    input   = toShelleyTxIn txIn
+    inputs' = Set.insert input inputs
+    SJust idx = Ledger.indexOf input inputs'
+
     txOut   = makeTxOut addr value datum ReferenceScriptNone
     utxos'  = UTxO . Map.insert txIn txOut . unUTxO $ utxos
-    SJust idx = Ledger.indexOf input inputs'
+
     idxUpdate idx'
       | idx' >= idx = idx' + 1
       | otherwise   = idx'
+
     scriptData'' = case datum of
       TxOutDatumNone -> scriptData'
       TxOutDatumHash{} -> scriptData'
       TxOutDatumInTx _ d -> addDatum (toAlonzoData d) scriptData'
       TxOutDatumInline _ d -> addDatum (toAlonzoData d) scriptData'
+
     scriptData' = recomputeScriptData Nothing idxUpdate scriptData
 
 applyTxMod tx utxos (AddScriptInput script value datum redeemer) =
@@ -158,10 +171,12 @@ applyTxMod tx utxos (AddScriptInput script value datum redeemer) =
     , utxos' )
   where
     Tx (ShelleyTxBody era body@Ledger.TxBody{..} scripts scriptData auxData validity) wits = tx
-    inputs' = Set.insert input inputs
-    input  = toShelleyTxIn txIn
-    txIn   = TxIn dummyTxId (TxIx txIx)
+
     txIx   = maximum $ 0 : map (+ 1) [ ix | TxIn txId (TxIx ix) <- Map.keys $ unUTxO utxos, txId == dummyTxId ]
+    txIn   = TxIn dummyTxId (TxIx txIx)
+    input  = toShelleyTxIn txIn
+    inputs' = Set.insert input inputs
+
     txOut  = makeTxOut addr value datum ReferenceScriptNone
     utxos' = UTxO . Map.insert txIn txOut . unUTxO $ utxos
 
@@ -185,6 +200,35 @@ applyTxMod tx utxos (AddScriptInput script value datum redeemer) =
     hash = case script of
              ScriptInEra _ scr -> hashScript scr
     addr = targetToAddressAny $ PaymentCredentialByScript hash
+
+
+applyTxMod tx utxos (AddSimpleScriptInput script value) =
+    ( Tx (ShelleyTxBody era body{Ledger.inputs = inputs'} scripts' scriptData' auxData validity) wits
+    , utxos' )
+  where
+    Tx (ShelleyTxBody era body@Ledger.TxBody{..} scripts scriptData auxData validity) wits = tx
+
+    txIx   = maximum $ 0 : map (+ 1) [ ix | TxIn txId (TxIx ix) <- Map.keys $ unUTxO utxos, txId == dummyTxId ]
+    txIn   = TxIn dummyTxId (TxIx txIx)
+    input  = toShelleyTxIn txIn
+    inputs' = Set.insert input inputs
+
+    txOut  = makeTxOut addr value TxOutDatumNone ReferenceScriptNone
+    utxos' = UTxO . Map.insert txIn txOut . unUTxO $ utxos
+
+    scriptInEra = ScriptInEra SimpleScriptV2InBabbage
+                  (SimpleScript SimpleScriptV2 script)
+    newScript = toShelleyScript @Era scriptInEra
+    scripts'  = scripts ++ [newScript]
+
+    SJust idx = Ledger.indexOf input inputs'
+    idxUpdate idx'
+      | idx' >= idx = idx' + 1
+      | otherwise   = idx'
+
+    scriptData' = recomputeScriptData Nothing idxUpdate scriptData
+
+    addr = targetToAddressAny $ PaymentCredentialByScript $ hashScript (SimpleScript SimpleScriptV2 script)
 
 applyTxMod tx utxos (ChangeOutput ix maddr mvalue mdatum) =
     (Tx (ShelleyTxBody era body{Ledger.outputs = outputs'} scripts scriptData' auxData validity) wits, utxos)
@@ -325,6 +369,9 @@ data ThreatModelEnv = ThreatModelEnv
   , pparams      :: ProtocolParameters
   } deriving Show
 
+-- TODO: transactions can fail for different reasons. Sometimes they fail with
+-- a "translation error". Translation errors should probably be treated as test
+-- failures not as validation failing - it's after all not validation failing!
 data ValidityReport = ValidityReport
   { valid  :: Bool
   , errors :: [String]
@@ -519,8 +566,13 @@ changeTarget output target = []
 removeOutput :: Output -> TxModifier
 removeOutput output = [RemoveOutput $ outputIx output]
 
+-- TODO: we need to stop people using this with simple scripts - simple
+-- scripts are not meant to have plutus validators.
 addScriptInput :: ScriptInEra Era -> Value -> Datum -> Redeemer -> TxModifier
 addScriptInput script value datum redeemer = [AddScriptInput script value datum redeemer]
+
+addSimpleScriptInput :: SimpleScript SimpleScriptV2 -> Value -> TxModifier
+addSimpleScriptInput script value = [AddSimpleScriptInput script value]
 
 addOutput :: AddressAny -> Value -> Datum -> TxModifier
 addOutput addr value datum = [AddOutput addr value datum]
@@ -550,9 +602,8 @@ txOutDatum d = TxOutDatumInTx ScriptDataInBabbageEra d
 toScriptData :: ToData a => a -> ScriptData
 toScriptData = fromPlutusData . toData
 
-checkSignedBy :: Hash PaymentKey -> ScriptInEra Era
-checkSignedBy h = ScriptInEra SimpleScriptV2InBabbage
-                                    (SimpleScript SimpleScriptV2 $ RequireSignature h)
+checkSignedBy :: Hash PaymentKey -> SimpleScript SimpleScriptV2
+checkSignedBy h = RequireSignature h
 
 changeValueOf :: Output -> Value -> TxModifier
 changeValueOf output val = [ChangeOutput (outputIx output) Nothing (Just val) Nothing]
@@ -589,7 +640,7 @@ doubleSatisfaction = do
 
       victimTarget = targetOf output
 
-  shouldNotValidate $ addScriptInput safeScript   ada unitDatum (toScriptData ())
+  shouldNotValidate $ addSimpleScriptInput safeScript ada
                    <> addOutput      victimTarget ada uniqueDatum
                    <> changeValueOf  output (valueOf output <> negateValue ada)
                    <> addOutput      signerAddr ada TxOutDatumNone
