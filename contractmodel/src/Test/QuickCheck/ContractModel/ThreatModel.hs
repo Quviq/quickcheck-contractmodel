@@ -11,6 +11,7 @@ import Cardano.Ledger.Alonzo.Tx qualified as Ledger (indexOf, Data, hashData)
 import Cardano.Ledger.TxIn (txid)
 import Cardano.Api
 import Cardano.Api.Shelley
+import Cardano.Api.Byron
 import Cardano.Ledger.Shelley.TxBody (WitVKey (..), Wdrl(..))
 import Cardano.Ledger.ShelleyMA.Timelocks (ValidityInterval(..))
 import Cardano.Ledger.Crypto (StandardCrypto)
@@ -374,11 +375,28 @@ applyTxModifier = curry $ foldl (uncurry applyTxMod)
 type TxModifier = [TxMod]
 
 prettyTx :: TxModifier -> Doc
-prettyTx = [prettyMod mod | mod <- TxModifier]
+prettyTx txmod = vcat [prettyMod mod | mod <- txmod]
   where
-    prettyAddr _ = _
+    prettyAddr (AddressByron (ByronAddress a)) = text $ show a
+    prettyAddr (AddressShelley (ShelleyAddress _ c _)) =
+      case fromShelleyPaymentCredential c of
+        PaymentCredentialByKey h    -> "Key@" <> text (show h)
+        PaymentCredentialByScript h -> "Script@" <> text (show h)
 
     prettyIx (TxIx txIx) = text $ show txIx
+
+    prettyValue = text . show
+
+    prettyDatum = text . show
+
+    prettyRedeemer = text . show
+
+    prettyScript = text . show
+
+    prettySimpleScript = text . show
+
+    prettyMaybe f Nothing = "Nothing"
+    prettyMaybe f (Just a) = "Just" <+> f a
 
     prettyMod (RemoveInput txIn) =
       "RemoveInput" <+> text (show txIn)
@@ -388,40 +406,40 @@ prettyTx = [prettyMod mod | mod <- TxModifier]
 
     prettyMod (ChangeOutput ix maddr mvalue mdatum) =
       "ChangeOutput" <+> prettyIx ix
-                     <+> _
-                     <+> _
-                     <+> _
+                     <+> prettyMaybe prettyAddr maddr
+                     <+> prettyMaybe prettyValue mvalue
+                     <+> prettyMaybe prettyDatum mdatum
 
     prettyMod (ChangeInput txIn maddr mvalue) =
       "ChangeInput" <+> prettyIx txIn
-                    <+> _
-                    <+> _
+                    <+> prettyMaybe prettyAddr maddr
+                    <+> prettyMaybe prettyValue mvalue
 
     prettyMod (ChangeScriptInput txIn mvalue mdatum mrdmr) =
       "ChangeScriptInput" <+> prettyIx txIn
-                          <+> _
-                          <+> _
-                          <+> _
+                          <+> prettyMaybe prettyValue mvalue
+                          <+> prettyMaybe prettyDatum mdatum
+                          <+> prettyMaybe prettyRedeemer mrdmr
 
     prettyMod (AddOutput addr value datum) =
       "AddOutput" <+> prettyAddr addr
-                  <+> _
-                  <+> _
+                  <+> prettyValue value
+                  <+> prettyDatum datum
 
     prettyMod (AddInput addr value datum) =
       "AddInput" <+> prettyAddr addr
-                 <+> _
-                 <+> _
+                 <+> prettyValue value
+                 <+> prettyDatum datum
 
     prettyMod (AddScriptInput script value datum redeemer) =
-      "AddScriptInput" <+> _
-                       <+> _
-                       <+> _
-                       <+> _
+      "AddScriptInput" <+> prettyScript script
+                       <+> prettyValue value
+                       <+> prettyDatum datum
+                       <+> prettyRedeemer redeemer
 
     prettyMod (AddSimpleScriptInput script value) =
-      "AddScriptInput" <+> _
-                       <+> _
+      "AddScriptInput" <+> prettySimpleScript script
+                       <+> prettyValue value
 
 data ThreatModelEnv = ThreatModelEnv
   { currentTx    :: Tx Era
@@ -568,7 +586,7 @@ shouldValidate tx = do
   -- for logging purposes if we are in a precondition
   unless (valid validReport) $ do
     monitorThreatModel $ tabulate "shouldValidate failure reasons" (errors validReport)
-    fail $ unlines $ "Expected the following transaction to validate:" : prettyTx tx
+    fail $ show $ hang "Expected the following transaction to validate:" 2 (prettyTx tx)
 
 shouldNotValidate :: TxModifier -> ThreatModel ()
 shouldNotValidate tx = do
@@ -576,7 +594,7 @@ shouldNotValidate tx = do
   -- TODO: here I think we might want a summary of the reasons
   -- for logging purposes if we are in a precondition
   when (valid validReport) $ do
-    fail $ unlines $ "Expected the following transaction not to validate:" : prettyTx tx
+    fail $ show $ hang "Expected the following transaction not to validate:" 2 (prettyTx tx)
 
 precondition :: ThreatModel a -> ThreatModel a
 precondition = \ case
