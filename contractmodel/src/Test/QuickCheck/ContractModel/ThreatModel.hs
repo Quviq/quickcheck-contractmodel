@@ -45,6 +45,8 @@ import Test.QuickCheck.ContractModel.Internal.ChainIndex
 
 import Test.QuickCheck
 
+import Text.PrettyPrint hiding ((<>))
+
 -- TODO: for some reason the plutus-apps emulator fails if you use inline datums - so
 -- all such transactions fail to validate.
 
@@ -371,6 +373,56 @@ applyTxModifier = curry $ foldl (uncurry applyTxMod)
 
 type TxModifier = [TxMod]
 
+prettyTx :: TxModifier -> Doc
+prettyTx = [prettyMod mod | mod <- TxModifier]
+  where
+    prettyAddr _ = _
+
+    prettyIx (TxIx txIx) = text $ show txIx
+
+    prettyMod (RemoveInput txIn) =
+      "RemoveInput" <+> text (show txIn)
+
+    prettyMod (RemoveOutput ix) =
+      "RemoveOutput" <+> prettyIx ix
+
+    prettyMod (ChangeOutput ix maddr mvalue mdatum) =
+      "ChangeOutput" <+> prettyIx ix
+                     <+> _
+                     <+> _
+                     <+> _
+
+    prettyMod (ChangeInput txIn maddr mvalue) =
+      "ChangeInput" <+> prettyIx txIn
+                    <+> _
+                    <+> _
+
+    prettyMod (ChangeScriptInput txIn mvalue mdatum mrdmr) =
+      "ChangeScriptInput" <+> prettyIx txIn
+                          <+> _
+                          <+> _
+                          <+> _
+
+    prettyMod (AddOutput addr value datum) =
+      "AddOutput" <+> prettyAddr addr
+                  <+> _
+                  <+> _
+
+    prettyMod (AddInput addr value datum) =
+      "AddInput" <+> prettyAddr addr
+                 <+> _
+                 <+> _
+
+    prettyMod (AddScriptInput script value datum redeemer) =
+      "AddScriptInput" <+> _
+                       <+> _
+                       <+> _
+                       <+> _
+
+    prettyMod (AddSimpleScriptInput script value) =
+      "AddScriptInput" <+> _
+                       <+> _
+
 data ThreatModelEnv = ThreatModelEnv
   { currentTx    :: Tx Era
   , currentUTxOs :: UTxO Era
@@ -437,26 +489,26 @@ instance MonadFail ThreatModel where
   fail = Fail
 
 runThreatModel :: ThreatModel a -> [ThreatModelEnv] -> Property
-runThreatModel = go False id
-  where go b mon model [] = classify (not b) "Skipped"
-                          $ classify b "Not skipped"
-                          $ property True
-        go b mon model (env : envs) = interp mon model
+runThreatModel = go False
+  where go b model [] = classify (not b) "Skipped"
+                      $ classify b "Not skipped"
+                      $ property True
+        go b model (env : envs) = interp (counterexample $ show env) model -- TODO: improve this logging!
           where
             interp mon = \ case
               Validate mods k    -> interp mon
                                   $ k
                                   $ uncurry (validateTx $ pparams env)
                                   $ applyTxModifier (currentTx env) (currentUTxOs env) mods
-              Generate gen shr k -> forAllShrink gen shr
+              Generate gen shr k -> forAllShrinkBlind gen shr
                                   $ interp mon . k
               GetCtx k           -> interp mon
                                   $ k env
-              Skip               -> go b id model envs
+              Skip               -> go b model envs
               Fail err           -> mon $ counterexample err False
               Monitor m k        -> m $ interp mon k
               MonitorLocal m k   -> interp (m . mon) k
-              Done{}             -> go True id model envs
+              Done{}             -> go True model envs
 
 -- NOTE: this function ignores the execution units associated with
 -- the scripts in the Tx. That way we don't have to care about computing
@@ -515,9 +567,8 @@ shouldValidate tx = do
   -- TODO: here I think we might want a summary of the reasons
   -- for logging purposes if we are in a precondition
   unless (valid validReport) $ do
-    monitorThreatModel $ tabulate "shouldValidate failure"
-                                  (errors validReport)
-    fail $ "Expected " ++ show tx ++ " to validate"
+    monitorThreatModel $ tabulate "shouldValidate failure reasons" (errors validReport)
+    fail $ unlines $ "Expected the following transaction to validate:" : prettyTx tx
 
 shouldNotValidate :: TxModifier -> ThreatModel ()
 shouldNotValidate tx = do
@@ -525,7 +576,7 @@ shouldNotValidate tx = do
   -- TODO: here I think we might want a summary of the reasons
   -- for logging purposes if we are in a precondition
   when (valid validReport) $ do
-    fail $ "Expected " ++ show tx ++ " not to validate"
+    fail $ unlines $ "Expected the following transaction not to validate:" : prettyTx tx
 
 precondition :: ThreatModel a -> ThreatModel a
 precondition = \ case
