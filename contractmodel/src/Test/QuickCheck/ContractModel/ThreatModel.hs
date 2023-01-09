@@ -385,6 +385,8 @@ prettyTx txmod = vcat [prettyMod mod | mod <- txmod]
 
     prettyIx (TxIx txIx) = text $ show txIx
 
+    prettyIn = text . show
+
     prettyValue = text . show
 
     prettyDatum = text . show
@@ -399,7 +401,7 @@ prettyTx txmod = vcat [prettyMod mod | mod <- txmod]
     prettyMaybe f (Just a) = "Just" <+> f a
 
     prettyMod (RemoveInput txIn) =
-      "RemoveInput" <+> text (show txIn)
+      "RemoveInput" <+> prettyIn txIn
 
     prettyMod (RemoveOutput ix) =
       "RemoveOutput" <+> prettyIx ix
@@ -411,12 +413,12 @@ prettyTx txmod = vcat [prettyMod mod | mod <- txmod]
                      <+> prettyMaybe prettyDatum mdatum
 
     prettyMod (ChangeInput txIn maddr mvalue) =
-      "ChangeInput" <+> prettyIx txIn
+      "ChangeInput" <+> prettyIn txIn
                     <+> prettyMaybe prettyAddr maddr
                     <+> prettyMaybe prettyValue mvalue
 
     prettyMod (ChangeScriptInput txIn mvalue mdatum mrdmr) =
-      "ChangeScriptInput" <+> prettyIx txIn
+      "ChangeScriptInput" <+> prettyIn txIn
                           <+> prettyMaybe prettyValue mvalue
                           <+> prettyMaybe prettyDatum mdatum
                           <+> prettyMaybe prettyRedeemer mrdmr
