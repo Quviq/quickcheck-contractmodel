@@ -3,9 +3,9 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings  #-}
 {-# OPTIONS_GHC -Wno-unused-matches -Wno-name-shadowing #-}
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 module Test.QuickCheck.ContractModel.ThreatModel where
 
-import Debug.Trace
 import Data.Coerce
 import Cardano.Ledger.Alonzo.Tx qualified as Ledger (indexOf, Data, hashData)
 import Cardano.Ledger.TxIn (txid)
@@ -23,7 +23,6 @@ import Cardano.Ledger.Serialization qualified as CBOR
 import Ouroboros.Consensus.HardFork.History
 import Ouroboros.Consensus.Cardano.Block (CardanoEras)
 import Ouroboros.Consensus.Util.Counting (NonEmpty (NonEmptyOne))
-import Cardano.Ledger.Core qualified as LedgerCore
 
 import PlutusTx (toData, ToData)
 import PlutusTx.Prelude (BuiltinByteString)
@@ -252,11 +251,14 @@ applyTxMod tx utxos (ChangeOutput ix maddr mvalue mdatum) =
         TxOutDatumInline _ d -> addDatum (toAlonzoData d) scriptData
 
 
-applyTxMod tx utxos (ChangeInput txIn maddr mvalue) = (tx , utxos')
+applyTxMod tx utxos (ChangeInput txIn maddr mvalue) =
+    (tx , utxos')
   where
-    Tx (ShelleyTxBody era body@Ledger.TxBody{..} scripts scriptData auxData validity) wits = tx
-    Just (TxOut (AddressInEra _ (toAddressAny -> addr)) (txOutValueToValue -> value) datum rscript) =
-      Map.lookup txIn $ unUTxO utxos
+    (addr, value, datum, rscript) = case Map.lookup txIn $ unUTxO utxos of
+      Just (TxOut (AddressInEra _ (toAddressAny -> addr)) (txOutValueToValue -> value) datum rscript) ->
+        (addr, value, datum, rscript)
+      Nothing -> error $ "Index " ++ show txIn ++ " doesn't exist."
+
 
     txOut = TxOut (anyAddressInShelleyBasedEra (fromMaybe addr maddr))
                   (TxOutValue MultiAssetInBabbageEra $ fromMaybe value mvalue)
@@ -268,8 +270,11 @@ applyTxMod tx utxos (ChangeScriptInput txIn mvalue mdatum mredeemer) =
     (Tx (ShelleyTxBody era body scripts scriptData' auxData validity) wits, utxos')
   where
     Tx (ShelleyTxBody era body@Ledger.TxBody{..} scripts scriptData auxData validity) wits = tx
-    Just (TxOut addr (txOutValueToValue -> value) utxoDatum rscript) =
-      Map.lookup txIn $ unUTxO utxos
+    (addr, value, utxoDatum, rscript) = case Map.lookup txIn $ unUTxO utxos of
+      Just (TxOut addr (txOutValueToValue -> value) utxoDatum rscript) ->
+        (addr, value, utxoDatum, rscript)
+      Nothing -> error $ "The index " ++ show txIn ++ " doesn't exist."
+
 
     (datum, (redeemer, exunits)) = case scriptData of
       TxBodyNoScriptData -> error "No script data available"
@@ -279,6 +284,7 @@ applyTxMod tx utxos (ChangeScriptInput txIn mvalue mdatum mredeemer) =
 
     utxoDatumHash = case utxoDatum of
       TxOutDatumNone -> error "No existing datum"
+      TxOutDatumInline _ d -> coerce $ hashScriptData d
       TxOutDatumHash _ h -> coerce h
 
     adatum = case mdatum of
@@ -295,7 +301,9 @@ applyTxMod tx utxos (ChangeScriptInput txIn mvalue mdatum mredeemer) =
 
     utxos' = UTxO . Map.insert txIn txOut . unUTxO $ utxos
 
-    SJust idx = Ledger.indexOf (toShelleyTxIn txIn) inputs
+    idx = case Ledger.indexOf (toShelleyTxIn txIn) inputs of
+      SJust idx -> idx
+      _         -> error "The impossible happened!"
 
     scriptData' = addScriptData idx adatum
                                     (fromMaybe redeemer (toAlonzoData <$> mredeemer), exunits)
@@ -400,6 +408,11 @@ data ThreatModel a where
                -> ThreatModel a
                -> ThreatModel a
 
+
+  MonitorLocal :: (Property -> Property)
+               -> ThreatModel a
+               -> ThreatModel a
+
   Done         :: a
                -> ThreatModel a
 
@@ -411,33 +424,39 @@ instance Applicative ThreatModel where
   (<*>) = ap
 
 instance Monad ThreatModel where
-  Validate tx cont         >>= k = Validate tx (cont >=> k)
+  Validate tx cont      >>= k = Validate tx (cont >=> k)
   Skip                  >>= _ = Skip
   Fail err              >>= _ = Fail err
   Generate gen shr cont >>= k = Generate gen shr (cont >=> k)
   GetCtx cont           >>= k = GetCtx (cont >=> k)
   Monitor m cont        >>= k = Monitor m (cont >>= k)
+  MonitorLocal m cont   >>= k = MonitorLocal m (cont >>= k)
   Done a                >>= k = k a
 
 instance MonadFail ThreatModel where
   fail = Fail
 
 runThreatModel :: ThreatModel a -> [ThreatModelEnv] -> Property
-runThreatModel = go False
-  where go b model [] = classify (not b) "Skipped"
-                      $ classify b "Not skipped"
-                      $ property True
-        go b model (env : envs) = interp model
+runThreatModel = go False id
+  where go b mon model [] = classify (not b) "Skipped"
+                          $ classify b "Not skipped"
+                          $ property True
+        go b mon model (env : envs) = interp mon model
           where
-            interp = \ case
-              Validate mods k       -> interp $ k $ uncurry (validateTx $ pparams env)
-                                               $ applyTxModifier (currentTx env) (currentUTxOs env) mods
-              Generate gen shr k -> forAllShrink gen shr $ interp . k
-              GetCtx k           -> interp $ k env
-              Skip               -> go b model envs
-              Fail err           -> counterexample err False
-              Monitor m k        -> m $ interp k
-              Done{}             -> go True model envs
+            interp mon = \ case
+              Validate mods k    -> interp mon
+                                  $ k
+                                  $ uncurry (validateTx $ pparams env)
+                                  $ applyTxModifier (currentTx env) (currentUTxOs env) mods
+              Generate gen shr k -> forAllShrink gen shr
+                                  $ interp mon . k
+              GetCtx k           -> interp mon
+                                  $ k env
+              Skip               -> go b id model envs
+              Fail err           -> mon $ counterexample err False
+              Monitor m k        -> m $ interp mon k
+              MonitorLocal m k   -> interp (m . mon) k
+              Done{}             -> go True id model envs
 
 -- NOTE: this function ignores the execution units associated with
 -- the scripts in the Tx. That way we don't have to care about computing
@@ -505,20 +524,19 @@ shouldNotValidate tx = do
   validReport <- validate tx
   -- TODO: here I think we might want a summary of the reasons
   -- for logging purposes if we are in a precondition
-  monitorThreatModel $ tabulate "shouldNotValidate tx failures"
-                                  (errors validReport)
   when (valid validReport) $ do
     fail $ "Expected " ++ show tx ++ " not to validate"
 
-precondition :: ThreatModel a -> ThreatModel ()
+precondition :: ThreatModel a -> ThreatModel a
 precondition = \ case
-  Skip           -> Skip
-  Fail reason    -> Monitor (tabulate "Precondition failed with reason" [reason]) Skip
-  Validate tx k     -> Validate tx     (precondition . k)
-  Generate g s k -> Generate g s (precondition . k)
-  GetCtx k       -> GetCtx       (precondition . k)
-  Monitor m k    -> Monitor m    (precondition k)
-  Done{}         -> Done ()
+  Skip             -> Skip
+  Fail reason      -> Monitor (tabulate "Precondition failed with reason" [reason]) Skip
+  Validate tx k    -> Validate tx (precondition . k)
+  Generate g s k   -> Generate g s (precondition . k)
+  GetCtx k         -> GetCtx (precondition . k)
+  Monitor m k      -> Monitor m (precondition k)
+  MonitorLocal m k -> MonitorLocal m (precondition k)
+  Done a           -> Done a
 
 ensure :: Bool -> ThreatModel ()
 ensure False = Skip
@@ -583,6 +601,9 @@ anySigner = pickAny . txSigners =<< originalTx
 monitorThreatModel :: (Property -> Property) -> ThreatModel ()
 monitorThreatModel m = Monitor m (pure ())
 
+monitorLocalThreatModel :: (Property -> Property) -> ThreatModel ()
+monitorLocalThreatModel m = MonitorLocal m (pure ())
+
 targetOf :: Output -> AddressAny
 targetOf (Output (TxOut (AddressInEra ShelleyAddressInEra{}  addr) _ _ _) _) = AddressShelley addr
 targetOf (Output (TxOut (AddressInEra ByronAddressInAnyEra{} addr) _ _ _) _) = AddressByron   addr
@@ -618,12 +639,8 @@ doubleSatisfaction = do
   let signerTarget = PaymentCredentialByKey signer
       signerAddr   = targetToAddressAny signerTarget
 
-  monitorThreatModel (classify True "Picked signer")
-
   outputs <- txOutputs <$> originalTx
   output  <- pickAny $ filter ((/= signerAddr) . targetOf) outputs
-
-  monitorThreatModel (classify True "Picked output")
 
   let ada = projectAda $ valueOf output
 
@@ -631,11 +648,8 @@ doubleSatisfaction = do
   precondition $ shouldNotValidate $ changeValueOf output (valueOf output <> negateValue ada)
                                   <> addOutput signerAddr ada TxOutDatumNone
 
-  monitorThreatModel (classify True "Passed precondition")
-
   -- add safe script input with protected output, redirect original output to signer
   let safeScript  = checkSignedBy signer
-      unitDatum   = txOutDatum $ toScriptData ()
       uniqueDatum = txOutDatum $ toScriptData ("SuchSecure" :: BuiltinByteString)
 
       victimTarget = targetOf output
