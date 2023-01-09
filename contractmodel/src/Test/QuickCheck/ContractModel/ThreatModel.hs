@@ -377,28 +377,30 @@ type TxModifier = [TxMod]
 prettyTx :: TxModifier -> Doc
 prettyTx txmod = vcat [prettyMod mod | mod <- txmod]
   where
+    parens d = "(" <> d <> ")"
+
     prettyAddr (AddressByron (ByronAddress a)) = text $ show a
     prettyAddr (AddressShelley (ShelleyAddress _ c _)) =
       case fromShelleyPaymentCredential c of
-        PaymentCredentialByKey h    -> "Key@" <> text (show h)
-        PaymentCredentialByScript h -> "Script@" <> text (show h)
+        PaymentCredentialByKey h    -> "Key@" <> text (take 7 $ drop 1 $ show h)
+        PaymentCredentialByScript h -> "Script@" <> text (take 7 $ drop 1 $ show h)
 
     prettyIx (TxIx txIx) = text $ show txIx
 
-    prettyIn = text . show
+    prettyIn = parens . text . show
 
-    prettyValue = text . show
+    prettyValue = parens . text . show
 
-    prettyDatum = text . show
+    prettyDatum = parens . text . show
 
-    prettyRedeemer = text . show
+    prettyRedeemer = parens . text . show
 
-    prettyScript = text . show
+    prettyScript = parens . text . show
 
-    prettySimpleScript = text . show
+    prettySimpleScript = parens . text . show
 
     prettyMaybe f Nothing = "Nothing"
-    prettyMaybe f (Just a) = "Just" <+> f a
+    prettyMaybe f (Just a) = "(Just $ " <> f a <> ")"
 
     prettyMod (RemoveInput txIn) =
       "RemoveInput" <+> prettyIn txIn
