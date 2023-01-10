@@ -6,43 +6,43 @@
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 module Test.QuickCheck.ContractModel.ThreatModel where
 
-import Data.Coerce
-import Cardano.Ledger.Alonzo.Tx qualified as Ledger (indexOf, Data, hashData)
-import Cardano.Ledger.TxIn (txid)
 import Cardano.Api
-import Cardano.Api.Shelley
 import Cardano.Api.Byron
-import Cardano.Ledger.Shelley.TxBody (WitVKey (..), Wdrl(..))
-import Cardano.Ledger.ShelleyMA.Timelocks (ValidityInterval(..))
-import Cardano.Ledger.Crypto (StandardCrypto)
-import Cardano.Ledger.Keys (hashKey, coerceKeyRole)
+import Cardano.Api.Shelley
+import Cardano.Ledger.Alonzo.Tx qualified as Ledger (Data, hashData, indexOf)
 import Cardano.Ledger.Alonzo.TxWitness qualified as Ledger
 import Cardano.Ledger.Babbage.TxBody qualified as Ledger
+import Cardano.Ledger.Crypto (StandardCrypto)
+import Cardano.Ledger.Keys (coerceKeyRole, hashKey)
+import Cardano.Ledger.Serialization qualified as CBOR
+import Cardano.Ledger.Shelley.TxBody (Wdrl (..), WitVKey (..))
+import Cardano.Ledger.ShelleyMA.Timelocks (ValidityInterval (..))
+import Cardano.Ledger.TxIn (txid)
 import Cardano.Slotting.Slot (EpochSize (EpochSize))
 import Cardano.Slotting.Time (SlotLength, SystemStart (SystemStart), mkSlotLength)
-import Cardano.Ledger.Serialization qualified as CBOR
-import Ouroboros.Consensus.HardFork.History
+import Data.Coerce
 import Ouroboros.Consensus.Cardano.Block (CardanoEras)
+import Ouroboros.Consensus.HardFork.History
 import Ouroboros.Consensus.Util.Counting (NonEmpty (NonEmptyOne))
 
-import PlutusTx (toData, ToData)
+import PlutusTx (ToData, toData)
 import PlutusTx.Prelude (BuiltinByteString)
 
 import Control.Monad
 
-import Data.Maybe
-import Data.Word
+import Cardano.Ledger.Alonzo.Scripts qualified as Ledger
 import Data.Either
 import Data.Map qualified as Map
-import Data.Set qualified as Set
-import Data.Sequence.Strict qualified as Seq
-import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
+import Data.Maybe
 import Data.Maybe.Strict
-import Cardano.Ledger.Alonzo.Scripts qualified as Ledger
+import Data.Sequence.Strict qualified as Seq
+import Data.Set qualified as Set
+import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
+import Data.Word
 
-import Test.QuickCheck.ContractModel.Internal.Common
 import Test.QuickCheck.ContractModel.Internal
 import Test.QuickCheck.ContractModel.Internal.ChainIndex
+import Test.QuickCheck.ContractModel.Internal.Common
 
 import Test.QuickCheck
 
@@ -141,9 +141,9 @@ applyTxMod tx utxos (AddOutput addr value datum) =
     outputs' = outputs Seq.:|> CBOR.mkSized out
     out = toShelleyTxOut shelleyBasedEra (makeTxOut addr value datum ReferenceScriptNone)
     scriptData' = case datum of
-      TxOutDatumNone -> scriptData
-      TxOutDatumHash{} -> scriptData
-      TxOutDatumInTx _ d -> addDatum (toAlonzoData d) scriptData
+      TxOutDatumNone       -> scriptData
+      TxOutDatumHash{}     -> scriptData
+      TxOutDatumInTx _ d   -> addDatum (toAlonzoData d) scriptData
       TxOutDatumInline _ d -> addDatum (toAlonzoData d) scriptData
 
 applyTxMod tx utxos (AddInput addr value datum) =
@@ -166,9 +166,9 @@ applyTxMod tx utxos (AddInput addr value datum) =
       | otherwise   = idx'
 
     scriptData'' = case datum of
-      TxOutDatumNone -> scriptData'
-      TxOutDatumHash{} -> scriptData'
-      TxOutDatumInTx _ d -> addDatum (toAlonzoData d) scriptData'
+      TxOutDatumNone       -> scriptData'
+      TxOutDatumHash{}     -> scriptData'
+      TxOutDatumInTx _ d   -> addDatum (toAlonzoData d) scriptData'
       TxOutDatumInline _ d -> addDatum (toAlonzoData d) scriptData'
 
     scriptData' = recomputeScriptData Nothing idxUpdate scriptData
@@ -196,9 +196,9 @@ applyTxMod tx utxos (AddScriptInput script value datum redeemer) =
       | otherwise   = idx'
 
     datum' = case datum of
-      TxOutDatumNone -> error "Bad test!"
-      TxOutDatumHash{} -> error "Bad test!"
-      TxOutDatumInTx _ d -> toAlonzoData d
+      TxOutDatumNone       -> error "Bad test!"
+      TxOutDatumHash{}     -> error "Bad test!"
+      TxOutDatumInTx _ d   -> toAlonzoData d
       TxOutDatumInline _ d -> toAlonzoData d
 
     scriptData' = addScriptData idx datum' (toAlonzoData redeemer, toAlonzoExUnits $ ExecutionUnits 0 0)
@@ -253,9 +253,9 @@ applyTxMod tx utxos (ChangeOutput ix maddr mvalue mdatum) =
     scriptData' = case mdatum of
       Nothing -> scriptData
       Just d -> case d of
-        TxOutDatumNone -> scriptData
-        TxOutDatumHash{} -> scriptData
-        TxOutDatumInTx _ d -> addDatum (toAlonzoData d) scriptData
+        TxOutDatumNone       -> scriptData
+        TxOutDatumHash{}     -> scriptData
+        TxOutDatumInTx _ d   -> addDatum (toAlonzoData d) scriptData
         TxOutDatumInline _ d -> addDatum (toAlonzoData d) scriptData
 
 
@@ -291,16 +291,16 @@ applyTxMod tx utxos (ChangeScriptInput txIn mvalue mdatum mredeemer) =
          fromJust $ Map.lookup (Ledger.RdmrPtr Ledger.Spend idx) rdmrs)
 
     utxoDatumHash = case utxoDatum of
-      TxOutDatumNone -> error "No existing datum"
+      TxOutDatumNone       -> error "No existing datum"
       TxOutDatumInline _ d -> coerce $ hashScriptData d
-      TxOutDatumHash _ h -> coerce h
+      TxOutDatumHash _ h   -> coerce h
 
     adatum = case mdatum of
-      Just (TxOutDatumNone) -> error "Bad test!"
-      Just (TxOutDatumHash{}) -> error "Bad test!"
-      Just (TxOutDatumInTx _ d) -> toAlonzoData d
+      Just (TxOutDatumNone)       -> error "Bad test!"
+      Just (TxOutDatumHash{})     -> error "Bad test!"
+      Just (TxOutDatumInTx _ d)   -> toAlonzoData d
       Just (TxOutDatumInline _ d) -> toAlonzoData d
-      Nothing -> datum
+      Nothing                     -> datum
 
     txOut = TxOut addr
                   (TxOutValue MultiAssetInBabbageEra $ fromMaybe value mvalue)
@@ -318,9 +318,9 @@ applyTxMod tx utxos (ChangeScriptInput txIn mvalue mdatum mredeemer) =
                                     scriptData
 
     toCtxUTxO d = case d of
-      TxOutDatumNone -> TxOutDatumNone
-      TxOutDatumHash s h -> TxOutDatumHash s h
-      TxOutDatumInTx s d -> TxOutDatumHash s (hashScriptData d)
+      TxOutDatumNone        -> TxOutDatumNone
+      TxOutDatumHash s h    -> TxOutDatumHash s h
+      TxOutDatumInTx s d    -> TxOutDatumHash s (hashScriptData d)
       TxOutDatumInline s sd -> TxOutDatumInline s sd
 
 emptyTxBodyScriptData :: TxBodyScriptData Era
@@ -379,32 +379,83 @@ applyTxModifier = curry $ foldl (uncurry applyTxMod)
 
 type TxModifier = [TxMod]
 
-prettyTx :: TxModifier -> Doc
-prettyTx txmod = vcat [prettyMod mod | mod <- txmod]
+prettyUTxO :: UTxO Era -> Doc
+prettyUTxO (UTxO utxo) =
+  hang "UTxO" 2 $ vcat [ (prettyIn i <> ":") <+> prettyTxOut o | (i, o) <- Map.toList utxo ]
+
+prettyIn :: TxIn -> Doc
+prettyIn (TxIn hash ix) =
+  text (take 7 $ drop 1 $ show hash) <> brackets (prettyIx ix)
+
+prettyTxOut :: TxOut CtxUTxO Era -> Doc
+prettyTxOut (TxOut (AddressInEra _ addr) value datum _) =
+  "TxOut" <+> vcat [ prettyAddr (toAddressAny addr)
+                   , prettyValue (txOutValueToValue value)
+                   , prettyDatum datum'
+                   ]
   where
-    parens d = "(" <> d <> ")"
+    datum' = case datum of
+      TxOutDatumNone        -> TxOutDatumNone
+      TxOutDatumHash s h    -> TxOutDatumHash s h
+      TxOutDatumInline s sd -> TxOutDatumInline s sd
 
-    prettyAddr (AddressByron (ByronAddress a)) = text $ show a
-    prettyAddr (AddressShelley (ShelleyAddress _ c _)) =
-      case fromShelleyPaymentCredential c of
-        PaymentCredentialByKey h    -> "Key@" <> text (take 7 $ drop 1 $ show h)
-        PaymentCredentialByScript h -> "Script@" <> text (take 7 $ drop 1 $ show h)
 
-    prettyIx (TxIx txIx) = text $ show txIx
+prettyTxOutTx :: TxOut CtxTx Era -> Doc
+prettyTxOutTx (TxOut (AddressInEra _ addr) value datum _) =
+  "TxOut" <+> vcat [ prettyAddr (toAddressAny addr)
+                   , prettyValue (txOutValueToValue value)
+                   , prettyDatum datum
+                   ]
 
-    prettyIn = parens . text . show
+prettyAddr :: AddressAny -> Doc
+prettyAddr (AddressByron (ByronAddress a)) = text $ show a
+prettyAddr (AddressShelley (ShelleyAddress _ c _)) =
+  case fromShelleyPaymentCredential c of
+    PaymentCredentialByKey h    -> "Key@" <> text (take 7 $ drop 1 $ show h)
+    PaymentCredentialByScript h -> "Script@" <> text (take 7 $ drop 1 $ show h)
 
-    prettyValue = parens . text . show
+prettyIx :: TxIx -> Doc
+prettyIx (TxIx txIx) = text $ show txIx
 
-    prettyDatum = parens . text . show
+prettyValue :: Value -> Doc
+prettyValue value =
+  braces $ sep $ punctuate "," [ (prettyAssetId assetId <> ":") <+> text (show num)
+                               | (assetId, num) <- valueToList value ]
 
-    prettyRedeemer = parens . text . show
+prettyAssetId :: AssetId -> Doc
+prettyAssetId AdaAssetId = "lovelace"
+prettyAssetId (AssetId hash name) = prettyHash hash <> "." <> prettyName name
+  where
+    prettyName name = if length (show name) < 10
+                      then text (show name)
+                      else text (take 9 (show name) ++ "...\"")
 
+prettyHash :: Show a => a -> Doc
+prettyHash = text . take 7 . drop 1 . show
+
+prettyDatum :: TxOutDatum CtxTx Era -> Doc
+prettyDatum TxOutDatumNone         = empty
+prettyDatum (TxOutDatumHash _ h)   = prettyHash h
+prettyDatum (TxOutDatumInline _ d) = prettyScriptData d
+prettyDatum (TxOutDatumInTx _ d)   = prettyScriptData d
+
+prettyTx :: Tx Era -> Doc
+prettyTx (Tx (TxBody (TxBodyContent{..})) wits) =
+  "Tx" <+> vcat [ "Inputs:" <+> vcat (map (prettyIn . fst) txIns)
+                , "Outputs:" <+> vcat (map prettyTxOutTx txOuts)
+                ] -- TODO: validity interval
+                  --       minting
+                  --       signatories
+                  --       redeemers
+
+prettyTxModifier :: TxModifier -> Doc
+prettyTxModifier txmod = vcat [prettyMod mod | mod <- txmod]
+  where
     prettyScript = parens . text . show
 
     prettySimpleScript = parens . text . show
 
-    prettyMaybe f Nothing = "Nothing"
+    prettyMaybe f Nothing  = "Nothing"
     prettyMaybe f (Just a) = "(Just $ " <> f a <> ")"
 
     prettyMod (RemoveInput txIn) =
@@ -414,41 +465,57 @@ prettyTx txmod = vcat [prettyMod mod | mod <- txmod]
       "RemoveOutput" <+> prettyIx ix
 
     prettyMod (ChangeOutput ix maddr mvalue mdatum) =
-      "ChangeOutput" <+> prettyIx ix
-                     <+> prettyMaybe prettyAddr maddr
-                     <+> prettyMaybe prettyValue mvalue
-                     <+> prettyMaybe prettyDatum mdatum
+      "ChangeOutput" <+> sep [ prettyIx ix
+                             , prettyMaybe prettyAddr maddr
+                             , prettyMaybe prettyValue mvalue
+                             , prettyMaybe prettyDatum mdatum
+                             ]
 
     prettyMod (ChangeInput txIn maddr mvalue) =
-      "ChangeInput" <+> prettyIn txIn
-                    <+> prettyMaybe prettyAddr maddr
-                    <+> prettyMaybe prettyValue mvalue
+      "ChangeInput" <+> sep [ prettyIn txIn
+                            , prettyMaybe prettyAddr maddr
+                            , prettyMaybe prettyValue mvalue
+                            ]
 
     prettyMod (ChangeScriptInput txIn mvalue mdatum mrdmr) =
-      "ChangeScriptInput" <+> prettyIn txIn
-                          <+> prettyMaybe prettyValue mvalue
-                          <+> prettyMaybe prettyDatum mdatum
-                          <+> prettyMaybe prettyRedeemer mrdmr
+      "ChangeScriptInput" <+> sep [ prettyIn txIn
+                                  , prettyMaybe prettyValue mvalue
+                                  , prettyMaybe prettyDatum mdatum
+                                  , prettyMaybe prettyScriptData mrdmr
+                                  ]
 
     prettyMod (AddOutput addr value datum) =
-      "AddOutput" <+> prettyAddr addr
-                  <+> prettyValue value
-                  <+> prettyDatum datum
+      "AddOutput" <+> sep [ prettyAddr addr
+                          , prettyValue value
+                          , prettyDatum datum
+                          ]
 
     prettyMod (AddInput addr value datum) =
-      "AddInput" <+> prettyAddr addr
-                 <+> prettyValue value
-                 <+> prettyDatum datum
+      "AddInput" <+> sep [ prettyAddr addr
+                         , prettyValue value
+                         , prettyDatum datum
+                         ]
 
     prettyMod (AddScriptInput script value datum redeemer) =
-      "AddScriptInput" <+> prettyScript script
-                       <+> prettyValue value
-                       <+> prettyDatum datum
-                       <+> prettyRedeemer redeemer
+      "AddScriptInput" <+> sep [ prettyScript script
+                               , prettyValue value
+                               , prettyDatum datum
+                               , prettyScriptData redeemer
+                               ]
 
     prettyMod (AddSimpleScriptInput script value) =
-      "AddScriptInput" <+> prettySimpleScript script
-                       <+> prettyValue value
+      "AddScriptInput" <+> sep [ prettySimpleScript script
+                               , prettyValue value
+                               ]
+
+prettyScriptData :: ScriptData -> Doc
+prettyScriptData (ScriptDataConstructor i args) = "Con" <> text (show i) <> parens (fsep . punctuate "," $ map prettyScriptData args)
+prettyScriptData (ScriptDataMap map) = braces . fsep . punctuate "," $
+  [ (prettyScriptData k <> ":") <+> prettyScriptData v | (k, v) <- map ]
+prettyScriptData (ScriptDataList list) = brackets . fsep . punctuate "," $
+  map prettyScriptData list
+prettyScriptData (ScriptDataNumber n) = text (show n)
+prettyScriptData (ScriptDataBytes bs) = text (show bs)
 
 data ThreatModelEnv = ThreatModelEnv
   { currentTx    :: Tx Era
@@ -515,10 +582,19 @@ instance Monad ThreatModel where
 instance MonadFail ThreatModel where
   fail = Fail
 
+restrictUTxO :: Tx Era -> UTxO Era -> UTxO Era
+restrictUTxO (Tx (TxBody TxBodyContent{..}) _) (UTxO utxo) =
+  UTxO $ Map.filterWithKey (\ k _ -> k `elem` map fst txIns) utxo
+
+
 runThreatModel :: ThreatModel a -> [ThreatModelEnv] -> Property
 runThreatModel = go False
   where go b model [] = b ==> property True
-        go b model (env : envs) = interp (counterexample $ show env) model -- TODO: improve this logging!
+        go b model (env : envs) = interp ( counterexample (show $ prettyTx $ currentTx env)
+                                         . counterexample (show $ prettyUTxO
+                                                                $ restrictUTxO (currentTx env)
+                                                                $ currentUTxOs env))
+                                         model
           where
             interp mon = \ case
               Validate mods k    -> interp mon
@@ -593,7 +669,7 @@ shouldValidate tx = do
   -- for logging purposes if we are in a precondition
   unless (valid validReport) $ do
     monitorThreatModel $ tabulate "shouldValidate failure reasons" (errors validReport)
-    fail $ show $ hang "Expected the following transaction to validate:" 2 (prettyTx tx)
+    fail $ show $ hang "Expected the following transaction to validate:" 2 (prettyTxModifier tx)
 
 shouldNotValidate :: TxModifier -> ThreatModel ()
 shouldNotValidate tx = do
@@ -601,7 +677,7 @@ shouldNotValidate tx = do
   -- TODO: here I think we might want a summary of the reasons
   -- for logging purposes if we are in a precondition
   when (valid validReport) $ do
-    fail $ show $ hang "Expected the following transaction not to validate:" 2 (prettyTx tx)
+    fail $ show $ hang "Expected the following transaction not to validate:" 2 (prettyTxModifier tx)
 
 precondition :: ThreatModel a -> ThreatModel a
 precondition = \ case
@@ -699,8 +775,8 @@ txOutDatum d = TxOutDatumInTx ScriptDataInBabbageEra d
 toScriptData :: ToData a => a -> ScriptData
 toScriptData = fromPlutusData . toData
 
-checkSignedBy :: Hash PaymentKey -> SimpleScript SimpleScriptV2
-checkSignedBy h = RequireSignature h
+mkSafeScript :: Hash PaymentKey -> SimpleScript SimpleScriptV2
+mkSafeScript h = RequireSignature h
 
 changeValueOf :: Output -> Value -> TxModifier
 changeValueOf output val = [ChangeOutput (outputIx output) Nothing (Just val) Nothing]
@@ -725,7 +801,7 @@ doubleSatisfaction = do
                                   <> addOutput signerAddr ada TxOutDatumNone
 
   -- add safe script input with protected output, redirect original output to signer
-  let safeScript  = checkSignedBy signer -- TODO: this is not the right script!
+  let safeScript  = mkSafeScript signer -- TODO: this is not the right script!
       uniqueDatum = txOutDatum $ toScriptData ("SuchSecure" :: BuiltinByteString)
 
       victimTarget = targetOf output
