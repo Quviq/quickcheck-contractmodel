@@ -51,6 +51,11 @@ import Text.PrettyPrint hiding ((<>))
 -- TODO: for some reason the plutus-apps emulator fails if you use inline datums - so
 -- all such transactions fail to validate.
 
+-- TODO: Fix the monitoring uglyness:
+-- * implement tabulate, classify, etc. with monitor and counterexample with monitorLocal
+-- * re-export all of quickcheck without the monitoring functions to avoid name clashes in
+--   client code
+
 type Target = PaymentCredential
 
 data Output = Output { outputTxOut :: TxOut CtxTx Era
@@ -512,9 +517,7 @@ instance MonadFail ThreatModel where
 
 runThreatModel :: ThreatModel a -> [ThreatModelEnv] -> Property
 runThreatModel = go False
-  where go b model [] = classify (not b) "Skipped"
-                      $ classify b "Not skipped"
-                      $ property True
+  where go b model [] = b ==> property True
         go b model (env : envs) = interp (counterexample $ show env) model -- TODO: improve this logging!
           where
             interp mon = \ case
@@ -722,7 +725,7 @@ doubleSatisfaction = do
                                   <> addOutput signerAddr ada TxOutDatumNone
 
   -- add safe script input with protected output, redirect original output to signer
-  let safeScript  = checkSignedBy signer
+  let safeScript  = checkSignedBy signer -- TODO: this is not the right script!
       uniqueDatum = txOutDatum $ toScriptData ("SuchSecure" :: BuiltinByteString)
 
       victimTarget = targetOf output
