@@ -705,7 +705,7 @@ pickSomeInput = do
   ThreatModelEnv tx utxos _ <- getCtx
   idx <- pickAny $ txInputs tx
   case Map.lookup idx $ unUTxO utxos of
-    Nothing    -> error "The impossible happened"
+    Nothing    -> fail $ "Transaction input not in UTxO map: " ++ show idx
     Just txout -> return (idx, txout)
 
 originalTx :: ThreatModel (Tx Era)
@@ -784,6 +784,7 @@ changeValueOf output val = [ChangeOutput (outputIx output) Nothing (Just val) No
 projectAda :: Value -> Value
 projectAda = lovelaceToValue . selectLovelace
 
+-- TODO: move to ...ThreatModel.DoubleSatisfaction
 doubleSatisfaction :: ThreatModel ()
 doubleSatisfaction = do
 
